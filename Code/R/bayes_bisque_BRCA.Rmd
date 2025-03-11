@@ -1,0 +1,358 @@
+
+##prepare data
+
+```{r}
+library(reticulate)
+```
+
+```{r}
+use_python("/home/juneli/anaconda3/envs/R-env/bin/python3")
+```
+
+
+```{python}
+import anndata as ad
+import gc
+import pandas as pd
+import numpy as np
+```
+
+
+```{python}
+GBM_df = pd.read_csv('../../Data/data_sum.csv')
+GBM_df = GBM_df.set_index('gene')
+GBM_df_obs_name = GBM_df.columns
+GBM_df_var_name = GBM_df.index
+print(GBM_df.index)
+print(GBM_df.columns)
+print(GBM_df.head())
+
+```
+
+
+```{python}
+print(len(GBM_df_obs_name))
+print(len(GBM_df_var_name))
+print(GBM_df.shape)
+```
+
+
+```{python}
+bk_matrix = np.array(GBM_df).T
+print(bk_matrix)
+```
+
+
+```{python}
+bk_count_matrix = bk_matrix
+bk_obs_names = list(GBM_df_obs_name)
+bk_var_names = list(GBM_df_var_name)
+#bk_label = combined_adata.obs
+```
+
+```{python}
+print(GBM_df_obs_name)
+```
+
+
+```{r}
+bk.dat <- py$bk_count_matrix
+rownames(bk.dat) <- py$bk_obs_names
+colnames(bk.dat) <- py$bk_var_names
+bk.dat <- as.matrix(bk.dat)
+#bk.label <- py$bk_label
+```
+
+```{r}
+print(dim(bk.dat))
+head(rownames(bk.dat))
+head(colnames(bk.dat))
+#print(dim(bk.label))
+#head(rownames(bk.label))
+#print(colnames(bk.label))
+```
+
+```{python}
+# 释放内存
+del(bk_count_matrix)
+del(bk_obs_names)
+del(bk_var_names)
+#del(bk_label)
+gc.collect()
+```
+
+
+## reference data
+
+```{python}
+adata = ad.read_h5ad("../../reference/scATOMIC_reference.h5ad")
+adata
+```
+
+```{python}
+# 提取多个 celltype 类型的观测数据
+cell_list = ["Cancer Associated Fibroblasts","Fibroblasts","Breast Cancer","CD4+ T cell","CD8+ T cell","Endothelial Cells","Macrophage","Natural killer cell","Plasmablast","cDC","Oligodendrocytes","Mast cell","pDC","Cancer Associated Myofibroblasts","Myofibroblasts","HSPC","Glial Cells","ASDC","Smooth Muscle Cells","Monocyte"]
+
+selected_obs = adata[adata.obs['CellType'] == "B cell"]
+merged_obs = selected_obs
+for i in range(len(cell_list)):
+  print(cell_list[i])
+  other_celltype_obs = adata[adata.obs['CellType'] == cell_list[i]]
+  merged_obs = ad.concat([merged_obs, other_celltype_obs], merge = "same") 
+```
+
+
+```{python}
+sc_adata = merged_obs
+sc_adata
+
+```
+
+
+```{python}
+
+scATOMIC_obs = sc_adata.obs[['CellType']]
+scATOMIC_obs['CellState'] = scATOMIC_obs['CellType']
+sc_adata.obs = scATOMIC_obs
+sc_adata.obs.head()
+```
+
+```{python}
+sc_count_matrix = sc_adata.X
+sc_obs_names = list(sc_adata.obs_names)
+sc_var_names = list(sc_adata.var_names)
+cell_type = sc_adata.obs["CellType"].astype(str)
+cell_state = sc_adata.obs["CellType"].astype(str)
+
+del(sc_adata)
+del(merged_obs)
+gc.collect()
+```
+
+
+```{r}
+sc.dat <- as.matrix(py$sc_count_matrix)
+rownames(sc.dat) <- py$sc_obs_names
+colnames(sc.dat) <- py$sc_var_names
+cell.type.labels <- py$cell_type
+cell.state.labels <- py$cell_state
+```
+
+```{r}
+print(dim(sc.dat))
+head(rownames(sc.dat))
+head(colnames(sc.dat))
+print(length(cell.type.labels))
+print(length(cell.state.labels))
+```
+
+
+```{python}
+
+del(sc_count_matrix)
+del(sc_obs_names)
+del(sc_var_names)
+del(cell_type)
+del(cell_state)
+gc.collect()
+```
+## BayesPrism
+## subset common genes
+
+```{r}
+common_genes <- intersect(colnames(bk.dat), colnames(sc.dat))
+bk.dat <- bk.dat[, common_genes]
+sc.dat <- sc.dat[, common_genes]
+```
+
+```{r}
+dim(bk.dat)
+head(colnames(bk.dat))
+head(rownames(bk.dat))
+dim(sc.dat)
+head(colnames(sc.dat))
+head(rownames(sc.dat))
+```
+
+## Filter outlier genes
+
+```{r}
+suppressWarnings(library(BayesPrism))
+```
+
+```{r}
+sc.stat <- plot.scRNA.outlier(
+ input=sc.dat, #make sure the colnames are gene symbol or ENSMEBL ID
+ cell.type.labels=cell.type.labels,
+ species="hs", #currently only human(hs) and mouse(mm) annotations are supported
+ return.raw=TRUE #return the data used for plotting.
+ #pdf.prefix="gbm.sc.stat" specify pdf.prefix if need to output to pdf
+)
+#> EMSEMBLE IDs detected.
+```
+
+```{r}
+head(sc.stat)
+```
+
+```{r}
+sc.dat.filtered <- cleanup.genes (
+  input=sc.dat,
+  input.type="count.matrix",
+  species="hs",
+  gene.group=c( "Rb","Mrp","other_Rb","chrM","MALAT1","chrX","chrY") ,
+  exp.cells=5
+)
+```
+
+```{r}
+dim(sc.dat.filtered)
+```
+
+
+```{r}
+sc.dat.filtered.pc <- select.gene.type (sc.dat.filtered,
+                                        gene.type = "protein_coding")
+```
+
+
+## Run BayesPrism
+
+```{r}
+myPrism <- new.prism(
+ reference=sc.dat.filtered.pc,
+ mixture=bk.dat,
+ input.type="count.matrix",
+ cell.type.labels = cell.type.labels,
+ cell.state.labels = cell.state.labels,
+ key=NULL,
+ outlier.cut=0.01,
+ outlier.fraction=0.1,
+)
+```
+
+```{r}
+Sys.time()
+bp.res <- run.prism(prism = myPrism, n.cores=50)
+Sys.time()
+```
+
+## Extract results
+
+```{r}
+slotNames(bp.res)
+```
+
+```{r}
+theta <- get.fraction (
+  bp=bp.res,
+  which.theta="final",
+  state.or.type="type")
+# head(theta)
+dim(theta)
+print(theta)
+```
+
+```{r}
+Z <- get.exp (
+  bp=bp.res,
+  state.or.type="type"
+)
+dim(Z)
+head(dimnames(Z)[[1]])
+head(dimnames(Z)[[2]])
+head(dimnames(Z)[[3]])
+```
+
+```{r}
+recon.bk.dat <- rowSums(Z, dims=2)
+dim(recon.bk.dat)
+head(rownames(recon.bk.dat))
+head(colnames(recon.bk.dat))
+```
+
+```{r}
+sample_ids <- rownames(recon.bk.dat)
+gene_symbols <- colnames(recon.bk.dat)
+cell_types <- colnames(theta)
+```
+
+
+```{python}
+dc_adata = ad.AnnData(r[f'recon.bk.dat'])
+dc_adata.obs_names = r[f'sample_ids']
+dc_adata.var_names = r[f'gene_symbols']
+dc_adata.obs = pd.DataFrame(
+  r[f'theta'], 
+  index=r[f'sample_ids'], 
+  columns=r[f'cell_types']
+)
+```
+
+```{python}
+for cell_type in r[f'cell_types']: 
+  dc_adata.layers[cell_type.replace('/', '_or_')] = r[f"Z[,,\"{cell_type}\"]"]
+
+```
+
+```{python}
+dc_adata.write_h5ad('../../Results/breast_scATOMIC21_bayes.h5ad', compression='gzip')
+```
+
+## BisqueRNA
+
+```{r}
+library(Biobase)
+library(BisqueRNA)
+library(Seurat)
+library(Matrix)
+library(tidyverse)
+```
+
+```{r}
+# bulk
+bk.dat[1:4,1:4]
+bulk.matrix <- t(bk.dat)
+bulk.eset <- Biobase::ExpressionSet(assayData = bulk.matrix)
+bulk.eset@assayData[["exprs"]][1:4,1:4]
+
+```
+
+```{r}
+
+sc.dat.filtered.pc[1:4,1:4]
+sc.matrix <- t(sc.dat.filtered.pc)
+
+#scmatrix_dgCMatrix <- as(sc.matrix, "dgCMatrix")
+
+sc.obj <- Seurat::CreateSeuratObject(counts = sc.matrix)
+
+sc.obj[["RNA"]] <- CreateAssayObject(counts = sc.matrix)
+
+sc.obj@assays$RNA@counts[1:4,1:4]
+
+sc.eset <- BisqueRNA::SeuratToExpressionSet(sc.obj, delimiter="\\.", position=1, version="v3")  
+
+table(sc.eset$SubjectName)
+```
+
+```{r}
+table(cell.type.labels)
+sc.eset$cellType <- cell.type.labels
+table(sc.eset$cellType)
+
+```
+
+
+```{r}
+res <- BisqueRNA::ReferenceBasedDecomposition(bulk.eset, sc.eset, markers=NULL, use.overlap=FALSE)
+
+```
+
+```{r}
+ref.based.estimates <- t(res$bulk.props)
+head(ref.based.estimates)
+write.csv(ref.based.estimates,'../../Results/results_bisque.csv',row.names = TRUE)
+```
+
+
