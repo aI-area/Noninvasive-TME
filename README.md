@@ -78,7 +78,7 @@ Please read [CONTRIBUTING.md](CONTRIBUTING.md) for details on our code of conduc
 
 ## Authors
 
-* Huijun Li, Qiuxia Yang, Rui Zhang, Yize Mao, Xiaoli Li, Zequn Zhang, Yuxi Chen, Feng Zou, Chon Lok Lei, Peng Wang, and Hongyan Wu2
+* Huijun Li, Qiuxia Yang, Rui Zhang, Yize Mao, Xiaoli Li, Zequn Zhang, Yuxi Chen, Feng Zou, Chon Lok Lei, Peng Wang, and Hongyan Wu
 
 See also the list of [contributors](https://github.com/compbio-fhs/noninvasive-tme-detection/contributors) who participated in this project.
 
@@ -91,5 +91,6 @@ This project is licensed under the BSD 3-Clause License, see [LICENSE](LICENSE) 
 If you publish any work based on the contents of this repository please cite:
 
 TBU
+
 
 
